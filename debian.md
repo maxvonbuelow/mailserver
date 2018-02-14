@@ -807,6 +807,10 @@ chmod +x /usr/lib/dovecot/sieve/sa-learn.sh
 
 # DKIM
 ```shell
+apt-get install opendkim opendkim-tools libopendbx1-mysql
+```
+or:
+```shell
 apt-get install opendkim opendkim-tools libopendbx1-pgsql
 ```
 

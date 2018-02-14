@@ -818,6 +818,7 @@ apt-get install opendkim opendkim-tools libopendbx1-pgsql
 nano /etc/opendkim.conf
 ```
 ```
+Socket                  local:/var/spool/postfix/opendkim/opendkim.sock
 Syslog             yes
 UMask              002
 OversignHeaders    From
@@ -826,13 +827,6 @@ SigningTable       dsn:mysql://mail_dkim:secret@localhost/mail/table=dkim_signin
 KeyTable           dsn:mysql://mail_dkim:secret@localhost/mail/table=dkim?keycol=id?datacol=domain_name,selector,private_key
 # SigningTable       dsn:pgsql://mail_dkim:secret/mail/table=dkim_signing?keycol=author?datacol=dkim_id
 # KeyTable           dsn:pgsql://mail_dkim:secret/mail/table=dkim?keycol=id?datacol=domain_name,selector,private_key
-```
-
-```shell
-nano /etc/default/opendkim
-```
-```
-SOCKET="local:/var/spool/postfix/opendkim/opendkim.sock"
 ```
 
 ```shell

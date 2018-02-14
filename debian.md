@@ -410,6 +410,7 @@ namespace inbox {
 ```
 ### Expires
 (This is based on [this article](https://wiki.dovecot.org/Plugins/Expire) of the Dovecot Wiki)
+
 It's useful to delete some mails after a while. Users are moving their mails to the spam folder, but forgetting to delete them completely. We can automate this step to save data storage.
 
 Create a shell script, which iterates though each user and deletes old mails:
@@ -820,16 +821,6 @@ SigningTable       dsn:mysql://mail_dkim:secret@localhost/mail/table=dkim_signin
 KeyTable           dsn:mysql://mail_dkim:secret@localhost/mail/table=dkim?keycol=id?datacol=domain_name,selector,private_key
 # SigningTable       dsn:pgsql://mail_dkim:secret/mail/table=dkim_signing?keycol=author?datacol=dkim_id
 # KeyTable           dsn:pgsql://mail_dkim:secret/mail/table=dkim?keycol=id?datacol=domain_name,selector,private_key
-ExternalIgnoreList refile:/etc/opendkimTrustedHosts
-InternalHosts      refile:/etc/opendkimTrustedHosts
-```
-
-```shell
-nano /etc/opendkimTrustedHosts
-```
-```
-127.0.0.1
-localhost
 ```
 
 ```shell
@@ -842,7 +833,6 @@ SOCKET="local:/var/spool/postfix/opendkim/opendkim.sock"
 ```shell
 mkdir /var/spool/postfix/opendkim/
 chown opendkim:opendkim /var/spool/postfix/opendkim/
-chown opendkim:opendkim /etc/opendkimTrustedHosts
 adduser postfix opendkim
 ```
 

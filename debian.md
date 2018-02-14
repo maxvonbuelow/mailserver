@@ -562,6 +562,7 @@ if header :contains "X-Spam-Flag" ["YES"] {
 
 ```shell
 chmod 644 /usr/lib/dovecot/sieve/global-before.sieve
+chown vmail:vmail /usr/lib/dovecot/sieve/global-before.sieve
 ```
 
 ### Quota

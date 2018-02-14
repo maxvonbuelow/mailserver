@@ -673,9 +673,6 @@ Add the content filter to both smtp and submission and add the after queue conte
 nano /etc/postfix/master.cf
 ```
 ```
-smtp      inet  n       -       -       -       -       smtpd
-submission inet n       -       -       -       -       smtpd
-
 local-mda unix -     n       n       -       -       pipe
   flags=DORXhu user=vmail:vmail argv=/usr/bin/spamc -u ${user}@${nexthop} -e /usr/lib/dovecot/deliver -f ${sender} -a ${original_recipient} -d ${user}@${nexthop}
 ```

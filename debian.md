@@ -163,7 +163,7 @@ postconf -e "smtpd_tls_exclude_ciphers = aNULL, eNULL, EXPORT, DES, RC4, MD5, PS
 postconf -e "smtp_use_tls = yes"
 postconf -e "smtp_tls_enforce_peername = no"
 
-# Allow 100MB attachments. It is 2017!
+# Allow 100MB attachments
 postconf -e "message_size_limit = 102428800"
 
 # Enabling SMTP for authenticated users, and handing off authentication to Dovecot

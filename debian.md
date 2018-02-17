@@ -722,7 +722,7 @@ systemctl start spamassassin
 sa-update --no-gpg
 ```
 
-### Spam and ham learn
+### Spam and ham learning
 (This is based on [this article](https://wiki2.dovecot.org/HowTo/AntispamWithSieve) of the Dovecot Wiki)
 
 If you want to learn from user move actions.
@@ -801,13 +801,13 @@ sievec /usr/lib/dovecot/sieve/report-ham.sieve
 chmod +x /usr/lib/dovecot/sieve/sa-learn.sh
 ```
 
-# DKIM
+# DKIM, DMARC and SPF signing/validation
 ```shell
-apt-get install opendkim opendkim-tools libopendbx1-mysql
+apt-get install opendkim opendkim-tools libopendbx1-mysql opendmarc
 ```
 or:
 ```shell
-apt-get install opendkim opendkim-tools libopendbx1-pgsql
+apt-get install opendkim opendkim-tools libopendbx1-pgsql opendmarc
 ```
 
 ```shell
@@ -824,34 +824,6 @@ KeyTable           dsn:mysql://mail_dkim:secret@localhost/mail/table=dkim?keycol
 # SigningTable       dsn:pgsql://mail_dkim:secret/mail/table=dkim_signing?keycol=author?datacol=dkim_id
 # KeyTable           dsn:pgsql://mail_dkim:secret/mail/table=dkim?keycol=id?datacol=domain_name,selector,private_key
 ```
-
-```shell
-mkdir /var/spool/postfix/opendkim/
-chown opendkim:opendkim /var/spool/postfix/opendkim/
-adduser postfix opendkim
-```
-
-```shell
-postconf -e "smtpd_milters = unix:/opendkim/opendkim.sock"
-postconf -e "non_smtpd_milters = unix:/opendkim/opendkim.sock"
-```
-
-```shell
-systemctl restart opendkim
-systemctl restart postfix
-```
-
-
-## DMARC and SPF validation
-```shell
-apt-get install opendmarc
-```
-
-or on Debian Jessie:
-```shell
-apt-get install -t jessie-backports opendmarc
-```
-
 ```shell
 nano /etc/opendmarc.conf
 ```
@@ -859,37 +831,39 @@ nano /etc/opendmarc.conf
 SPFSelfValidate true
 SPFIgnoreResults true
 IgnoreAuthenticatedClients true
+Socket local:/var/spool/postfix/opendmarc/opendmarc.sock
 ```
 
 ```shell
-nano /etc/default/opendmarc
-```
-```
-SOCKET="local:/var/spool/postfix/opendmarc/opendmarc.sock"
-```
-
-```shell
+mkdir /var/spool/postfix/opendkim/
+chown opendkim:opendkim /var/spool/postfix/opendkim/
+adduser postfix opendkim
 mkdir /var/spool/postfix/opendmarc/
 chown opendmarc:opendmarc /var/spool/postfix/opendmarc/
 adduser postfix opendmarc
 ```
 
-You may have to correct the socket in `/lib/systemd/system/opendmarc.service` on Debian Jessie and restart systemd:
 ```shell
-systemctl daemon-reload
+postconf -e "smtpd_milters = unix:/opendkim/opendkim.sock, unix:/opendmarc/opendmarc.sock"
+postconf -e "non_smtpd_milters = unix:/opendkim/opendkim.sock, unix:/opendmarc/opendmarc.sock"
 ```
 
 ```shell
-nano /etc/postfix/main.cf
-```
-```
-smtpd_milters = unix:/opendkim/opendkim.sock, unix:/opendmarc/opendmarc.sock
-non_smtpd_milters = unix:/opendkim/opendkim.sock, unix:/opendmarc/opendmarc.sock
-```
-
-```shell
+systemctl restart opendkim
 systemctl restart opendmarc
 systemctl restart postfix
+```
+
+### Systemd
+You may have to remove the socket (`-p`) from `/lib/systemd/system/opendmarc.service` on some systems and restart systemd:
+```shell
+nano /lib/systemd/system/opendmarc.service
+```
+```
+ExecStart=/usr/sbin/opendmarc -u opendmarc -P /var/run/opendmarc/opendmarc.pid
+```
+```shell
+systemctl daemon-reload
 ```
 
 # Closing words

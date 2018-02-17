@@ -17,6 +17,7 @@ You can choose between PostgreSQL and MaraiDB. MaraiDB has the advantage of easy
 
 ### PosegreSQL
 ```shell
+DBENGINE=pgsql
 apt-get install postgresql postgresql-client
 ```
 
@@ -75,6 +76,7 @@ GRANT SELECT (id, domain_name, selector, private_key) ON dkim TO mail_dkim;
 
 ### MariaDB
 ```shell
+DBENGINE=mysql
 apt-get install mariadb-server mariadb-client
 ```
 
@@ -132,11 +134,7 @@ FLUSH PRIVILEGES;
 ## Postfix
 ### Packages
 ```shell
-apt-get install postfix postfix-mysql
-```
-or:
-```shell
-apt-get install postfix postfix-pgsql
+apt-get install postfix postfix-$DBENGINE
 ```
 
 ### Basic setup
@@ -146,7 +144,6 @@ postconf -M submission/inet="submission inet n       -       -       -       -  
 ```
 
 Set the following parameters in main.cf:
-(Replace `mysql` with `pgsql` if you use PostgreSQL)
 ```shell
 # TLS parameters
 postconf -e "smtpd_tls_cert_file = /etc/ssl/certs/example.invalid.pem"
@@ -182,12 +179,12 @@ postconf -e "smtpd_sender_restrictions = reject_authenticated_sender_login_misma
 postconf -e "virtual_transport = local-mda"
 
 # Virtual domains, users, and aliases
-postconf -e "virtual_mailbox_domains = proxy:mysql:/etc/postfix/maps/virtual-mailbox-domains.cf"
-postconf -e "virtual_mailbox_maps = proxy:mysql:/etc/postfix/maps/virtual-mailbox-maps.cf"
-postconf -e "virtual_alias_maps = proxy:mysql:/etc/postfix/maps/virtual-alias-maps.cf, proxy:mysql:/etc/postfix/maps/virtual-email2email.cf"
-postconf -e "transport_maps = proxy:mysql:/etc/postfix/maps/virtual-transports.cf"
+postconf -e "virtual_mailbox_domains = proxy:$DBENGINE:/etc/postfix/maps/virtual-mailbox-domains.cf"
+postconf -e "virtual_mailbox_maps = proxy:$DBENGINE:/etc/postfix/maps/virtual-mailbox-maps.cf"
+postconf -e "virtual_alias_maps = proxy:$DBENGINE:/etc/postfix/maps/virtual-alias-maps.cf, proxy:$DBENGINE:/etc/postfix/maps/virtual-email2email.cf"
+postconf -e "transport_maps = proxy:$DBENGINE:/etc/postfix/maps/virtual-transports.cf"
 # allow only addresses from authenticated sender
-postconf -e "smtpd_sender_login_maps = proxy:mysql:/etc/postfix/maps/virtual-alias-maps.cf, proxy:mysql:/etc/postfix/maps/virtual-email2email.cf"
+postconf -e "smtpd_sender_login_maps = proxy:$DBENGINE:/etc/postfix/maps/virtual-alias-maps.cf, proxy:$DBENGINE:/etc/postfix/maps/virtual-email2email.cf"
 postconf -e "recipient_delimiter = +"
 # And remove all hostnames except localhost from mydestination. If there are any duplicates between this option and your domains relation, Postfix will show you errors.
 postconf -e "mydestination = localhost"
@@ -230,12 +227,11 @@ echo "query = SELECT CONCAT(CONCAT(username, ':'), password) FROM relay_auth WHE
 echo "query = SELECT relay FROM sender_relays WHERE source = '%s'" >> /etc/postfix/maps/virtual-sender-relay-maps.cf
 ```
 
-(Replace `mysql` with `pgsql` if you use PostgreSQL)
 ```shell
 postconf -e "smtp_sasl_auth_enable = yes"
 postconf -e "smtp_sender_dependent_authentication = yes"
-postconf -e "smtp_sasl_password_maps = proxy:mysql:/etc/postfix/maps/virtual-sasl-passwd-maps.cf"
-postconf -e "sender_dependent_relayhost_maps = proxy:mysql:/etc/postfix/maps/virtual-sender-relay-maps.cf"
+postconf -e "smtp_sasl_password_maps = proxy:$DBENGINE:/etc/postfix/maps/virtual-sasl-passwd-maps.cf"
+postconf -e "sender_dependent_relayhost_maps = proxy:$DBENGINE:/etc/postfix/maps/virtual-sender-relay-maps.cf"
 postconf -e "smtp_sasl_security_options = noanonymous"
 ```
 
@@ -252,11 +248,7 @@ systemctl restart postfix
 ## Dovecot
 ### Packages
 ```shell
-apt-get install dovecot-core dovecot-imapd dovecot-pop3d dovecot-lmtpd dovecot-mysql dovecot-sieve dovecot-managesieved
-```
-or:
-```shell
-apt-get install dovecot-core dovecot-imapd dovecot-pop3d dovecot-lmtpd dovecot-pgsql dovecot-sieve dovecot-managesieved
+apt-get install dovecot-core dovecot-imapd dovecot-pop3d dovecot-lmtpd dovecot-$DBENGINE dovecot-sieve dovecot-managesieved
 ```
 
 ### Basic setup
@@ -646,7 +638,7 @@ doveadm pw -s SHA512-CRYPT
 ## Spamassassin
 ### Packages
 ```shell
-apt-get install spamassassin spamc razor pyzor (libdbd-mysql-perl)
+apt-get install spamassassin spamc razor pyzor $([[ $DBENGINE == "mysql" ]] && echo libdbd-mysql-perl)
 ```
 
 ### Basic setup
@@ -803,11 +795,7 @@ chmod +x /usr/lib/dovecot/sieve/sa-learn.sh
 
 # DKIM, DMARC and SPF signing/validation
 ```shell
-apt-get install opendkim opendkim-tools libopendbx1-mysql opendmarc
-```
-or:
-```shell
-apt-get install opendkim opendkim-tools libopendbx1-pgsql opendmarc
+apt-get install opendkim opendkim-tools libopendbx1-$DBENGINE opendmarc
 ```
 
 ```shell

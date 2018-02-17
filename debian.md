@@ -142,68 +142,55 @@ apt-get install postfix postfix-pgsql
 ### Basic setup
 Uncomment the submission port. You probably need that for your university WiFi due to stupid blocking of port 25.
 ```shell
-nano /etc/postfix/master.cf
-```
-```
-submission inet n       -       -       -       -       smtpd
+postconf -M submission/inet="submission inet n       -       -       -       -       smtpd"
 ```
 
 Set the following parameters in main.cf:
-```shell
-nano /etc/postfix/main.cf
-```
 (Replace `mysql` with `pgsql` if you use PostgreSQL)
-```
+```shell
 # TLS parameters
-smtpd_tls_cert_file = /etc/ssl/certs/example.invalid.pem
-smtpd_tls_key_file = /etc/ssl/private/example.invalid.key
-smtpd_use_tls = yes
-smtpd_tls_security_level = may
-smtpd_tls_auth_only = yes
-smtpd_tls_ciphers = high
-smtpd_tls_mandatory_protocols=!SSLv2,!SSLv3
-smtp_tls_mandatory_protocols=!SSLv2,!SSLv3
-smtpd_tls_protocols=!SSLv2,!SSLv3
-smtp_tls_protocols=!SSLv2,!SSLv3
-smtpd_tls_exclude_ciphers = aNULL, eNULL, EXPORT, DES, RC4, MD5, PSK, aECDH, EDH-DSS-DES-CBC3-SHA, EDH-RSA-DES-CBC3-SHA, KRB5-DES, CBC3-SHA
-smtp_use_tls = yes
-smtp_tls_enforce_peername = no
+postconf -e "smtpd_tls_cert_file = /etc/ssl/certs/example.invalid.pem"
+postconf -e "smtpd_tls_key_file = /etc/ssl/private/example.invalid.key"
+postconf -e "smtpd_use_tls = yes"
+postconf -e "smtpd_tls_security_level = may"
+postconf -e "smtpd_tls_auth_only = yes"
+postconf -e "smtpd_tls_ciphers = high"
+postconf -e "smtpd_tls_mandatory_protocols=!SSLv2,!SSLv3"
+postconf -e "smtp_tls_mandatory_protocols=!SSLv2,!SSLv3"
+postconf -e "smtpd_tls_protocols=!SSLv2,!SSLv3"
+postconf -e "smtp_tls_protocols=!SSLv2,!SSLv3"
+postconf -e "smtpd_tls_exclude_ciphers = aNULL, eNULL, EXPORT, DES, RC4, MD5, PSK, aECDH, EDH-DSS-DES-CBC3-SHA, EDH-RSA-DES-CBC3-SHA, KRB5-DES, CBC3-SHA"
+postconf -e "smtp_use_tls = yes"
+postconf -e "smtp_tls_enforce_peername = no"
 
 # Allow 100MB attachments
-message_size_limit = 102428800
+postconf -e "message_size_limit = 102428800"
 
 # Enabling SMTP for authenticated users, and handing off authentication to Dovecot
-smtpd_sasl_type = dovecot
-smtpd_sasl_path = private/auth
-smtpd_sasl_auth_enable = yes
+postconf -e "smtpd_sasl_type = dovecot"
+postconf -e "smtpd_sasl_path = private/auth"
+postconf -e "smtpd_sasl_auth_enable = yes"
 
-smtpd_recipient_restrictions =
-	permit_sasl_authenticated,
-	permit_mynetworks,
-	reject_unauth_destination
+postconf -e "smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination"
 
 # allow only addresses from authenticated sender
-smtpd_sender_restrictions = reject_authenticated_sender_login_mismatch
+postconf -e "smtpd_sender_restrictions = reject_authenticated_sender_login_mismatch"
 
 # Use the following, if you don't need spam filtering:
-# virtual_transport = lmtp:unix:private/dovecot-lmtp
+# postconf -e "virtual_transport = lmtp:unix:private/dovecot-lmtp"
 # Use the following to pipe everything through spamassassin
-virtual_transport = local-mda
+postconf -e "virtual_transport = local-mda"
 
 # Virtual domains, users, and aliases
-virtual_mailbox_domains = proxy:mysql:/etc/postfix/maps/virtual-mailbox-domains.cf
-virtual_mailbox_maps = proxy:mysql:/etc/postfix/maps/virtual-mailbox-maps.cf
-virtual_alias_maps = proxy:mysql:/etc/postfix/maps/virtual-alias-maps.cf, proxy:mysql:/etc/postfix/maps/virtual-email2email.cf
-transport_maps = proxy:mysql:/etc/postfix/maps/virtual-transports.cf
+postconf -e "virtual_mailbox_domains = proxy:mysql:/etc/postfix/maps/virtual-mailbox-domains.cf"
+postconf -e "virtual_mailbox_maps = proxy:mysql:/etc/postfix/maps/virtual-mailbox-maps.cf"
+postconf -e "virtual_alias_maps = proxy:mysql:/etc/postfix/maps/virtual-alias-maps.cf, proxy:mysql:/etc/postfix/maps/virtual-email2email.cf"
+postconf -e "transport_maps = proxy:mysql:/etc/postfix/maps/virtual-transports.cf"
 # allow only addresses from authenticated sender
-smtpd_sender_login_maps = proxy:mysql:/etc/postfix/maps/virtual-alias-maps.cf, proxy:mysql:/etc/postfix/maps/virtual-email2email.cf
-
-recipient_delimiter = +
-```
-And remove all hostnames except localhost from mydestination. If there are any duplicates between this option and your domains relation, Postfix will show you errors.
-```
-#mydestination = example.invalid, hostname.example.invalid, localhost.example.invalid, localhost
-mydestination = localhost
+postconf -e "smtpd_sender_login_maps = proxy:mysql:/etc/postfix/maps/virtual-alias-maps.cf, proxy:mysql:/etc/postfix/maps/virtual-email2email.cf"
+postconf -e "recipient_delimiter = +"
+# And remove all hostnames except localhost from mydestination. If there are any duplicates between this option and your domains relation, Postfix will show you errors.
+postconf -e "mydestination = localhost"
 ```
 
 Create the maps for the virtuals. I simplified some things here for you.
@@ -244,16 +231,14 @@ echo "query = SELECT relay FROM sender_relays WHERE source = '%s'" >> /etc/postf
 ```
 
 And add the following lines to main.cf.
-```bash
-nano /etc/postfix/main.cf
 ```
 (Replace `mysql` with `pgsql` if you use PostgreSQL)
-```
-smtp_sasl_auth_enable = yes
-smtp_sender_dependent_authentication = yes
-smtp_sasl_password_maps = proxy:mysql:/etc/postfix/maps/virtual-sasl-passwd-maps.cf
-sender_dependent_relayhost_maps = proxy:mysql:/etc/postfix/maps/virtual-sender-relay-maps.cf
-smtp_sasl_security_options = noanonymous
+```shell
+postconf -e "smtp_sasl_auth_enable = yes"
+postconf -e "smtp_sender_dependent_authentication = yes"
+postconf -e "smtp_sasl_password_maps = proxy:mysql:/etc/postfix/maps/virtual-sasl-passwd-maps.cf"
+postconf -e "sender_dependent_relayhost_maps = proxy:mysql:/etc/postfix/maps/virtual-sender-relay-maps.cf"
+postconf -e "smtp_sasl_security_options = noanonymous"
 ```
 
 ### Finalize
@@ -551,6 +536,8 @@ mkdir /usr/lib/dovecot/sieve
 chown vmail:vmail /usr/lib/dovecot/sieve/
 nano /usr/lib/dovecot/sieve/global-before.sieve
 ```
+Depending on what you what, choose one of the following sieve scripts.
+#### Move all spam mails into Junk folder
 ```
 require ["fileinto"];
 # Move spam to spam folder
@@ -559,7 +546,22 @@ if header :contains "X-Spam-Flag" ["YES"] {
   stop;
 }
 ```
-
+#### Discard high-likelihood spam, move low-likelihood spam into Junk folder
+```
+require ["fileinto"];
+# If the spam level is at least 4, we immediately discard the message.
+# Sieve only supports integers, so set the number of asterisks to your personal preference.
+if header :contains "X-Spam-Level" "****" {
+        discard;
+        stop;
+}
+# If the mail is considered spam (i.e. by exceeding "required"), we only file it into "Junk"
+# Set "required" in /etc/spamassassin/local.cf.
+if header :contains "X-Spam-Flag" ["YES"] {
+        fileinto "Junk";
+        stop;
+}
+```
 ```shell
 chmod 644 /usr/lib/dovecot/sieve/global-before.sieve
 chown vmail:vmail /usr/lib/dovecot/sieve/global-before.sieve
@@ -672,11 +674,7 @@ OPTIONS="-x -q --max-children 2 --username spamd -H ${SAHOME} -s ${SAHOME}spamd.
 
 Add the content filter to both smtp and submission and add the after queue content filter.
 ```shell
-nano /etc/postfix/master.cf
-```
-```
-local-mda unix -     n       n       -       -       pipe
-  flags=DORXhu user=vmail:vmail argv=/usr/bin/spamc -u ${user}@${nexthop} -e /usr/lib/dovecot/deliver -f ${sender} -a ${original_recipient} -d ${user}@${nexthop}
+postconf -M local-mda/unix='local-mda unix -     n       n       -       -       pipe flags=DORXhu user=vmail:vmail argv=/usr/bin/spamc -u ${user}@${nexthop} -e /usr/lib/dovecot/deliver -f ${sender} -a ${original_recipient} -d ${user}@${nexthop}'
 ```
 
 ```shell
@@ -836,11 +834,8 @@ adduser postfix opendkim
 ```
 
 ```shell
-nano /etc/postfix/main.cf
-```
-```
-smtpd_milters = unix:/opendkim/opendkim.sock
-non_smtpd_milters = unix:/opendkim/opendkim.sock
+postconf -e "smtpd_milters = unix:/opendkim/opendkim.sock"
+postconf -e "non_smtpd_milters = unix:/opendkim/opendkim.sock"
 ```
 
 ```shell

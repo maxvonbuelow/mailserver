@@ -230,8 +230,6 @@ echo "query = SELECT CONCAT(CONCAT(username, ':'), password) FROM relay_auth WHE
 echo "query = SELECT relay FROM sender_relays WHERE source = '%s'" >> /etc/postfix/maps/virtual-sender-relay-maps.cf
 ```
 
-And add the following lines to main.cf.
-```
 (Replace `mysql` with `pgsql` if you use PostgreSQL)
 ```shell
 postconf -e "smtp_sasl_auth_enable = yes"

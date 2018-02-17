@@ -551,6 +551,8 @@ mkdir /usr/lib/dovecot/sieve
 chown vmail:vmail /usr/lib/dovecot/sieve/
 nano /usr/lib/dovecot/sieve/global-before.sieve
 ```
+Depending on what you what, choose one of the following sieve scripts.
+#### Move all spam mails into Junk folder
 ```
 require ["fileinto"];
 # Move spam to spam folder
@@ -559,7 +561,22 @@ if header :contains "X-Spam-Flag" ["YES"] {
   stop;
 }
 ```
-
+#### Discard high-likelihood spam, move low-likelihood spam into Junk folder
+```
+require ["fileinto"];
+# If the spam level is at least 4, we immediately discard the message.
+# Sieve only supports integers, so set the number of asterisks to your personal preference.
+if header :contains "X-Spam-Level" "****" {
+        discard;
+        stop;
+}
+# If the mail is considered spam (i.e. by exceeding "required"), we only file it into "Junk"
+# Set "required" in /etc/spamassassin/local.cf.
+if header :contains "X-Spam-Flag" ["YES"] {
+        fileinto "Junk";
+        stop;
+}
+```
 ```shell
 chmod 644 /usr/lib/dovecot/sieve/global-before.sieve
 chown vmail:vmail /usr/lib/dovecot/sieve/global-before.sieve

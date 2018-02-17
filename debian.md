@@ -221,9 +221,8 @@ hosts = $DBHOST
 dbname = $DBNAME
 EOF
 
-echo "query = SELECT CONCAT(CONCAT(username, ':'), password) FROM relay_auth WHERE source = '%s'" >> /etc/postfix/maps/virtual-sasl-passwd-maps.cf
-# PostgreSQL:
-# echo "query = SELECT username || ':' || password FROM relay_auth WHERE source = '%s'" >> /etc/postfix/maps/virtual-sasl-passwd-maps.cf
+concat=$([[ $DBENGINE == "mysql" ]] && echo "CONCAT(CONCAT(username, ':'), password)" || echo "username || ':' || password")
+echo "query = SELECT $concat FROM relay_auth WHERE source = '%s'" >> /etc/postfix/maps/virtual-sasl-passwd-maps.cf
 echo "query = SELECT relay FROM sender_relays WHERE source = '%s'" >> /etc/postfix/maps/virtual-sender-relay-maps.cf
 ```
 

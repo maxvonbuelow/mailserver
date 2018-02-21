@@ -13,7 +13,7 @@ Check if the reverse DNS and SPF resource records are set correctly. If they are
 The myhostname setting of Postfix has to match the FQDN of your host and the reverse DNS entry. The mailname can be different though.
 
 ## Database setup
-You can choose between PostgreSQL and MaraiDB. MaraiDB has the advantage of easy-to-setup master-master replications.
+You can choose between PostgreSQL and MariaDB. MariaDB has the advantage of easy-to-setup master-master replications.
 
 ### PosegreSQL
 ```shell

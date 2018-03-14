@@ -518,12 +518,13 @@ Add a global sieve file to automatically move spam to the Junk folder.
 nano /etc/dovecot/conf.d/90-sieve.conf
 ```
 ```
-  sieve_before = /usr/lib/dovecot/sieve/global-before.sieve
+  sieve_default = /usr/lib/dovecot/sieve/default.sieve
+  sieve_default_name = move-junk
 ```
 ```shell
 mkdir /usr/lib/dovecot/sieve
 chown vmail:vmail /usr/lib/dovecot/sieve/
-nano /usr/lib/dovecot/sieve/global-before.sieve
+nano /usr/lib/dovecot/sieve/default.sieve
 ```
 Depending on what you what, choose one of the following sieve scripts.
 #### Move all spam mails into Junk folder
@@ -552,8 +553,8 @@ if header :contains "X-Spam-Flag" ["YES"] {
 }
 ```
 ```shell
-chmod 644 /usr/lib/dovecot/sieve/global-before.sieve
-chown vmail:vmail /usr/lib/dovecot/sieve/global-before.sieve
+chmod 644 /usr/lib/dovecot/sieve/default.sieve
+chown vmail:vmail /usr/lib/dovecot/sieve/default.sieve
 ```
 
 ### Quota

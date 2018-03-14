@@ -33,6 +33,7 @@ CREATE USER mail_postfix WITH ENCRYPTED PASSWORD 'secret';
 CREATE USER mail_dovecot WITH ENCRYPTED PASSWORD 'secret';
 CREATE USER mail_sa      WITH ENCRYPTED PASSWORD 'secret';
 CREATE USER mail_dkim    WITH ENCRYPTED PASSWORD 'secret';
+-- CREATE USER mail_roundcube WITH ENCRYPTED PASSWORD 'secret';
 ```
 
 And the tables.
@@ -72,6 +73,10 @@ GRANT ALL ON SEQUENCE bayes_vars_id_seq TO mail_sa;
 GRANT USAGE ON SCHEMA public TO mail_dkim;
 GRANT SELECT (dkim_id, author) ON dkim_signing TO mail_dkim;
 GRANT SELECT (id, domain_name, selector, private_key) ON dkim TO mail_dkim;
+
+-- ONLY IF YOU WANT ROUNDCUBE
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON userpref TO mail_roundcube;
+-- GRANT SELECT (email), UPDATE (password) ON users TO mail_roundcube;
 ```
 
 ### MariaDB
@@ -92,6 +97,7 @@ CREATE USER 'mail_postfix'@'localhost' IDENTIFIED BY 'secret';
 CREATE USER 'mail_dovecot'@'localhost' IDENTIFIED BY 'secret';
 CREATE USER 'mail_sa'@'localhost' IDENTIFIED BY 'secret';
 CREATE USER 'mail_dkim'@'localhost' IDENTIFIED BY 'secret';
+-- CREATE USER 'mail_roundcube'@'your-webserver.invalid' IDENTIFIED BY 'secret';
 ```
 
 And the tables.
@@ -127,6 +133,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON bayes_vars TO 'mail_sa'@'localhost';
 -- ONLY IF YOU WANT DKIM
 GRANT SELECT (dkim_id, author) ON dkim_signing TO 'mail_dkim'@'localhost';
 GRANT SELECT (id, domain_name, selector, private_key) ON dkim TO 'mail_dkim'@'localhost';
+
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON userpref TO 'mail_roundcube'@'your-webserver.invalid';
+-- GRANT SELECT (email), UPDATE (password) ON users TO 'mail_roundcube'@'your-webserver.invalid';
 
 FLUSH PRIVILEGES;
 ```

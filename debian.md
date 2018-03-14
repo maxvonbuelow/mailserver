@@ -545,8 +545,8 @@ if header :contains "X-Spam-Level" "****" {
         discard;
         stop;
 }
-# If the mail is considered spam (i.e. by exceeding "required"), we only file it into "Junk"
-# Set "required" in /etc/spamassassin/local.cf.
+# If the mail is considered spam (i.e. by exceeding "required_score"), we only file it into "Junk"
+# Set this threshold in /etc/spamassassin/local.cf.
 if header :contains "X-Spam-Flag" ["YES"] {
         fileinto "Junk";
         stop;

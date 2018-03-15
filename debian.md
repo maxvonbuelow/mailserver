@@ -68,6 +68,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON bayes_token TO mail_sa;
 GRANT SELECT, INSERT, UPDATE, DELETE ON bayes_vars TO mail_sa;
 GRANT ALL ON SEQUENCE userpref_prefid_seq TO mail_sa;
 GRANT ALL ON SEQUENCE bayes_vars_id_seq TO mail_sa;
+GRANT SELECT, INSERT, UPDATE, DELETE ON awl TO mail_sa;
 
 -- ONLY IF YOU WANT DKIM
 GRANT USAGE ON SCHEMA public TO mail_dkim;
@@ -129,6 +130,7 @@ GRANT SELECT ON bayes_global_vars TO 'mail_sa'@'localhost';
 GRANT SELECT, INSERT, UPDATE, DELETE ON bayes_seen TO 'mail_sa'@'localhost';
 GRANT SELECT, INSERT, UPDATE, DELETE ON bayes_token TO 'mail_sa'@'localhost';
 GRANT SELECT, INSERT, UPDATE, DELETE ON bayes_vars TO 'mail_sa'@'localhost';
+GRANT SELECT, INSERT, UPDATE, DELETE ON awl TO 'mail_sa'@'localhost';
 
 -- ONLY IF YOU WANT DKIM
 GRANT SELECT (dkim_id, author) ON dkim_signing TO 'mail_dkim'@'localhost';
@@ -699,6 +701,13 @@ bayes_sql_dsn                   DBI:mysql:mail:localhost
 bayes_sql_username              mail_sa
 bayes_sql_password              secret
 
+auto_whitelist_factory          Mail::SpamAssassin::SQLBasedAddrList
+user_awl_dsn                    DBI:mysql:mail:localhost
+# user_awl_dsn                    DBI:Pg:dbname=mail;host=127.0.0.1
+user_awl_sql_username           mail_sa
+user_awl_sql_password           secret
+user_awl_sql_table              awl
+
 # pyzor
 use_pyzor 1
 pyzor_path /usr/bin/pyzor
@@ -711,6 +720,12 @@ razor_config /etc/razor/razor-agent.conf
 use_bayes 1
 use_bayes_rules 1
 bayes_auto_learn 1
+```
+```shell
+nano /etc/spamassassin/v310.pre
+```
+```
+loadplugin Mail::SpamAssassin::Plugin::AWL
 ```
 
 If you want, you can do a syntax check. #whatever

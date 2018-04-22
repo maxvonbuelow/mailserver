@@ -673,7 +673,7 @@ SAHOME="/var/log/spamassassin/"
 OPTIONS="-x -q --max-children 2 --username spamd -H ${SAHOME} -s ${SAHOME}spamd.log --allow-tell"
 ```
 
-Add the content filter to both smtp and submission and add the after queue content filter.
+Add the following entry to the master configuration:
 ```shell
 postconf -M local-mda/unix='local-mda unix -     n       n       -       -       pipe flags=DORXhu user=vmail:vmail argv=/usr/bin/spamc -u ${user}@${nexthop} -e /usr/lib/dovecot/deliver -f ${sender} -a ${original_recipient} -d ${user}@${nexthop}'
 ```

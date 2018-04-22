@@ -812,8 +812,7 @@ exec /usr/bin/spamc -u ${2} --learntype=${1}
 ```
 
 ```shell
-sievec /usr/lib/dovecot/sieve/report-spam.sieve
-sievec /usr/lib/dovecot/sieve/report-ham.sieve
+sievec /usr/lib/dovecot/sieve
 chmod +x /usr/lib/dovecot/sieve/sa-learn.sh
 ```
 

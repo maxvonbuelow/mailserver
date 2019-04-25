@@ -675,7 +675,8 @@ OPTIONS="-x -q --max-children 2 --username spamd -H ${SAHOME} -s ${SAHOME}spamd.
 
 Add the following entry to the master configuration:
 ```shell
-postconf -M local-mda/unix='local-mda unix -     n       n       -       -       pipe flags=DORXhu user=vmail:vmail argv=/usr/bin/spamc -u ${user}@${nexthop} -e /usr/lib/dovecot/deliver -f ${sender} -a ${original_recipient} -d ${user}@${nexthop}'
+postconf -M local-mda/unix='local-mda unix -     n       n       -       -       pipe flags=RXhu user=vmail:vmail argv=/usr/bin/spamc -u ${user}@${nexthop} -e /usr/lib/dovecot/deliver -f ${sender} -a ${original_recipient} -d ${user}@${nexthop}'
+# DO removed (TODO)
 ```
 
 ```shell

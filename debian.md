@@ -1,4 +1,4 @@
-# Mailserver Tutorial Postfix/Dovecot/SpamAssassin
+# Mailserver Tutorial Postfix/Dovecot/rspamd
 
 ## Preamble
 This tutorial should be a guide to set up your own mail server. It should provide the same functionality as commercial web mailers. To allow a clustered setup, all dynamic parameters like the user accounts or the learned spam tokens are stored in a MariaDB/PostgreSQL database, which can be easyly replicated using BDR. The mails can be replicated using Dovecot dysnc.
@@ -31,8 +31,6 @@ Create the users and the database.
 CREATE DATABASE mail;
 CREATE USER mail_postfix WITH ENCRYPTED PASSWORD 'secret';
 CREATE USER mail_dovecot WITH ENCRYPTED PASSWORD 'secret';
-CREATE USER mail_sa      WITH ENCRYPTED PASSWORD 'secret';
-CREATE USER mail_dkim    WITH ENCRYPTED PASSWORD 'secret';
 -- CREATE USER mail_roundcube WITH ENCRYPTED PASSWORD 'secret';
 ```
 
@@ -58,23 +56,6 @@ GRANT SELECT (quota, email, password) ON users TO mail_dovecot;
 GRANT SELECT ("source", destination) ON forwardings TO mail_dovecot;
 GRANT SELECT, INSERT, UPDATE, DELETE ON expires TO mail_dovecot; -- ONLY IF YOU WANT EXPIRES
 
--- ONLY IF YOU WANT SPAM FILTERS
-GRANT USAGE ON SCHEMA public TO mail_sa;
-GRANT SELECT, INSERT, UPDATE, DELETE ON userpref TO mail_sa;
-GRANT SELECT, INSERT, UPDATE, DELETE ON bayes_expire TO mail_sa;
-GRANT SELECT ON bayes_global_vars TO mail_sa;
-GRANT SELECT, INSERT, UPDATE, DELETE ON bayes_seen TO mail_sa;
-GRANT SELECT, INSERT, UPDATE, DELETE ON bayes_token TO mail_sa;
-GRANT SELECT, INSERT, UPDATE, DELETE ON bayes_vars TO mail_sa;
-GRANT ALL ON SEQUENCE userpref_prefid_seq TO mail_sa;
-GRANT ALL ON SEQUENCE bayes_vars_id_seq TO mail_sa;
-GRANT SELECT, INSERT, UPDATE, DELETE ON awl TO mail_sa;
-
--- ONLY IF YOU WANT DKIM
-GRANT USAGE ON SCHEMA public TO mail_dkim;
-GRANT SELECT (dkim_id, author) ON dkim_signing TO mail_dkim;
-GRANT SELECT (id, domain_name, selector, private_key) ON dkim TO mail_dkim;
-
 -- ONLY IF YOU WANT ROUNDCUBE
 -- GRANT SELECT, INSERT, UPDATE, DELETE ON userpref TO mail_roundcube;
 -- GRANT SELECT (email), UPDATE (password) ON users TO mail_roundcube;
@@ -96,8 +77,6 @@ Create the users and the database.
 CREATE DATABASE mail DEFAULT CHARACTER SET utf8 DEFAULT COLLATE utf8_general_ci;
 CREATE USER 'mail_postfix'@'localhost' IDENTIFIED BY 'secret';
 CREATE USER 'mail_dovecot'@'localhost' IDENTIFIED BY 'secret';
-CREATE USER 'mail_sa'@'localhost' IDENTIFIED BY 'secret';
-CREATE USER 'mail_dkim'@'localhost' IDENTIFIED BY 'secret';
 -- CREATE USER 'mail_roundcube'@'your-webserver.invalid' IDENTIFIED BY 'secret';
 ```
 
@@ -122,19 +101,6 @@ GRANT SELECT (source, username, password) ON relay_auth TO 'mail_postfix'@'local
 GRANT SELECT (quota, email, password) ON users TO 'mail_dovecot'@'localhost';
 GRANT SELECT (source, destination) ON forwardings TO 'mail_dovecot'@'localhost';
 GRANT SELECT, INSERT, UPDATE, DELETE ON expires TO 'mail_dovecot'@'localhost'; -- ONLY IF YOU WANT EXPIRES
-
--- ONLY IF YOU WANT SPAM FILTERS
-GRANT SELECT, INSERT, UPDATE, DELETE ON userpref TO 'mail_sa'@'localhost';
-GRANT SELECT, INSERT, UPDATE, DELETE ON bayes_expire TO 'mail_sa'@'localhost';
-GRANT SELECT ON bayes_global_vars TO 'mail_sa'@'localhost';
-GRANT SELECT, INSERT, UPDATE, DELETE ON bayes_seen TO 'mail_sa'@'localhost';
-GRANT SELECT, INSERT, UPDATE, DELETE ON bayes_token TO 'mail_sa'@'localhost';
-GRANT SELECT, INSERT, UPDATE, DELETE ON bayes_vars TO 'mail_sa'@'localhost';
-GRANT SELECT, INSERT, UPDATE, DELETE ON awl TO 'mail_sa'@'localhost';
-
--- ONLY IF YOU WANT DKIM
-GRANT SELECT (dkim_id, author) ON dkim_signing TO 'mail_dkim'@'localhost';
-GRANT SELECT (id, domain_name, selector, private_key) ON dkim TO 'mail_dkim'@'localhost';
 
 -- GRANT SELECT, INSERT, UPDATE, DELETE ON userpref TO 'mail_roundcube'@'your-webserver.invalid';
 -- GRANT SELECT (email), UPDATE (password) ON users TO 'mail_roundcube'@'your-webserver.invalid';
@@ -181,13 +147,10 @@ postconf -e "smtpd_sasl_auth_enable = yes"
 
 postconf -e "smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination"
 
-# allow only addresses from authenticated sender
+# Allow only addresses from authenticated sender
 postconf -e "smtpd_sender_restrictions = reject_authenticated_sender_login_mismatch"
 
-# Use the following, if you don't need spam filtering:
-# postconf -e "virtual_transport = lmtp:unix:private/dovecot-lmtp"
-# Use the following to pipe everything through spamassassin
-postconf -e "virtual_transport = local-mda"
+postconf -e "virtual_transport = lmtp:unix:private/dovecot-lmtp"
 
 # Virtual domains, users, and aliases
 postconf -e "virtual_mailbox_domains = proxy:$DBENGINE:/etc/postfix/maps/virtual-mailbox-domains.cf"
@@ -547,22 +510,6 @@ if header :contains "X-Spam-Flag" ["YES"] {
   stop;
 }
 ```
-#### Discard high-likelihood spam, move low-likelihood spam into Junk folder
-```
-require ["fileinto"];
-# If the spam level is at least 4, we immediately discard the message.
-# Sieve only supports integers, so set the number of asterisks to your personal preference.
-if header :contains "X-Spam-Level" "****" {
-        discard;
-        stop;
-}
-# If the mail is considered spam (i.e. by exceeding "required_score"), we only file it into "Junk"
-# Set this threshold in /etc/spamassassin/local.cf.
-if header :contains "X-Spam-Flag" ["YES"] {
-        fileinto "Junk";
-        stop;
-}
-```
 ```shell
 chmod 644 /usr/lib/dovecot/sieve/default.sieve
 chown vmail:vmail /usr/lib/dovecot/sieve/default.sieve
@@ -646,97 +593,35 @@ doveadm pw -s SHA512-CRYPT
 ```
 
 
-## Spamassassin
+## rspamd
 ### Packages
 ```shell
-apt-get install spamassassin spamc razor pyzor $([[ $DBENGINE == "mysql" ]] && echo libdbd-mysql-perl)
+apt-get install rspamd redis-server
 ```
 
 ### Basic setup
 ```shell
-groupadd spamd
-
-useradd -g spamd -s /bin/false -d /var/log/spamassassin spamd
-
-mkdir /var/log/spamassassin
-
-chown spamd:spamd /var/log/spamassassin
+rspamadm configwizard
 ```
 
 ```shell
-nano /etc/default/spamassassin
-```
-```
-ENABLED=1
-CRON=1
-SAHOME="/var/log/spamassassin/"
-OPTIONS="-x -q --max-children 2 --username spamd -H ${SAHOME} -s ${SAHOME}spamd.log --allow-tell"
+postconf -e "milter_default_action = accept"
+postconf -e "smtpd_milters = inet:localhost:11332"
+postconf -e "non_smtpd_milters = \$smtpd_milters"
 ```
 
-Add the following entry to the master configuration:
 ```shell
-postconf -M local-mda/unix='local-mda unix -     n       n       -       -       pipe flags=RXhu user=vmail:vmail argv=/usr/bin/spamc -u ${user}@${nexthop} -e /usr/lib/dovecot/deliver -f ${sender} -a ${original_recipient} -d ${user}@${nexthop}'
-# DO removed (TODO)
+nano /etc/rspamd/local.d/milter_headers.conf
+```
+```
+extended_spam_headers = true;
+authenticated_headers = ["authentication-results"];
+use = [ "authentication-results"];
 ```
 
 ```shell
 systemctl restart postfix
-```
-
-Forward mails to spamassassin (and back).
-```shell
-nano /etc/spamassassin/local.cf
-```
-```
-report_safe 0
-
-user_scores_dsn                 DBI:mysql:mail:localhost
-# user_scores_dsn                 DBI:Pg:dbname=mail;host=127.0.0.1
-user_scores_sql_username        mail_sa
-user_scores_sql_password        secret
-
-bayes_store_module              Mail::SpamAssassin::BayesStore::MySQL
-bayes_sql_dsn                   DBI:mysql:mail:localhost
-# bayes_store_module              Mail::SpamAssassin::BayesStore::PgSQL
-# bayes_sql_dsn                   DBI:Pg:dbname=mail;host=127.0.0.1
-bayes_sql_username              mail_sa
-bayes_sql_password              secret
-
-auto_whitelist_factory          Mail::SpamAssassin::SQLBasedAddrList
-user_awl_dsn                    DBI:mysql:mail:localhost
-# user_awl_dsn                    DBI:Pg:dbname=mail;host=127.0.0.1
-user_awl_sql_username           mail_sa
-user_awl_sql_password           secret
-user_awl_sql_table              awl
-
-# pyzor
-use_pyzor 1
-pyzor_path /usr/bin/pyzor
-
-# razor
-use_razor2 1
-razor_config /etc/razor/razor-agent.conf
-
-# bayes
-use_bayes 1
-use_bayes_rules 1
-bayes_auto_learn 1
-```
-```shell
-nano /etc/spamassassin/v310.pre
-```
-```
-loadplugin Mail::SpamAssassin::Plugin::AWL
-```
-
-If you want, you can do a syntax check. #whatever
-```shell
-spamassassin --lint
-```
-
-```shell
-systemctl start spamassassin
-sa-update --no-gpg
+systemctl restart rspamd
 ```
 
 ### Spam and ham learning
@@ -809,73 +694,12 @@ nano /usr/lib/dovecot/sieve/sa-learn.sh
 ```
 ```
 #!/bin/sh
-exec /usr/bin/spamc -u ${2} --learntype=${1}
+exec /usr/bin/rspamc -h 127.0.0.1 learn_${1}
 ```
 
 ```shell
 sievec /usr/lib/dovecot/sieve
 chmod +x /usr/lib/dovecot/sieve/sa-learn.sh
-```
-
-# DKIM, DMARC and SPF signing/validation
-```shell
-apt-get install opendkim opendkim-tools libopendbx1-$DBENGINE opendmarc
-```
-
-```shell
-nano /etc/opendkim.conf
-```
-```
-Socket                  local:/var/spool/postfix/opendkim/opendkim.sock
-Syslog             yes
-UMask              002
-OversignHeaders    From
-AlwaysAddARHeader  true
-SigningTable       dsn:mysql://mail_dkim:secret@localhost/mail/table=dkim_signing?keycol=author?datacol=dkim_id
-KeyTable           dsn:mysql://mail_dkim:secret@localhost/mail/table=dkim?keycol=id?datacol=domain_name,selector,private_key
-# SigningTable       dsn:pgsql://mail_dkim:secret/mail/table=dkim_signing?keycol=author?datacol=dkim_id
-# KeyTable           dsn:pgsql://mail_dkim:secret/mail/table=dkim?keycol=id?datacol=domain_name,selector,private_key
-```
-```shell
-nano /etc/opendmarc.conf
-```
-```
-SPFSelfValidate true
-SPFIgnoreResults true
-IgnoreAuthenticatedClients true
-Socket local:/var/spool/postfix/opendmarc/opendmarc.sock
-```
-
-```shell
-mkdir /var/spool/postfix/opendkim/
-chown opendkim:opendkim /var/spool/postfix/opendkim/
-adduser postfix opendkim
-mkdir /var/spool/postfix/opendmarc/
-chown opendmarc:opendmarc /var/spool/postfix/opendmarc/
-adduser postfix opendmarc
-```
-
-```shell
-postconf -e "smtpd_milters = unix:/opendkim/opendkim.sock, unix:/opendmarc/opendmarc.sock"
-postconf -e "non_smtpd_milters = unix:/opendkim/opendkim.sock, unix:/opendmarc/opendmarc.sock"
-```
-
-```shell
-systemctl restart opendkim
-systemctl restart opendmarc
-systemctl restart postfix
-```
-
-### Systemd
-You may have to remove the socket (`-p`) from `/lib/systemd/system/opendmarc.service` on some systems and restart systemd:
-```shell
-nano /lib/systemd/system/opendmarc.service
-```
-```
-ExecStart=/usr/sbin/opendmarc -u opendmarc -P /var/run/opendmarc/opendmarc.pid
-```
-```shell
-systemctl daemon-reload
 ```
 
 # Closing words

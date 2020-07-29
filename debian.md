@@ -126,7 +126,8 @@ Set the following parameters in main.cf:
 postconf -e "smtpd_tls_cert_file = /etc/ssl/certs/example.invalid.pem"
 postconf -e "smtpd_tls_key_file = /etc/ssl/private/example.invalid.key"
 postconf -e "smtpd_use_tls = yes"
-postconf -e "smtpd_tls_security_level = may"
+postconf -e "smtpd_tls_security_level = dane" # or may, if DNSSEC is not available
+postconf -e "smtp_dns_support_level = dnssec"
 postconf -e "smtpd_tls_auth_only = yes"
 postconf -e "smtpd_tls_ciphers = high"
 postconf -e "smtpd_tls_mandatory_protocols=!SSLv2,!SSLv3"

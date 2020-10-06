@@ -1,7 +1,7 @@
-# Mailserver Tutorial Postfix/Dovecot/rspamd
+# Mailserver Tutorial Postfix/Cyrus/rspamd
 
 ## Preamble
-This tutorial should be a guide to set up your own mail server. It should provide the same functionality as commercial web mailers. To allow a clustered setup, all dynamic parameters like the user accounts or the learned spam tokens are stored in a MariaDB/PostgreSQL database, which can be easyly replicated using BDR. The mails can be replicated using Dovecot dysnc.
+This tutorial should be a guide to set up your own mail server. It should provide the same functionality as commercial web mailers. To allow a clustered setup, all dynamic parameters like the user accounts or the learned spam tokens are stored in a MariaDB/PostgreSQL database, which can be easyly replicated using BDR. The mails can be replicated using Cyrus murder.
 
 I highly recommend to read the comments I've made. The comments include experiences I've made and you will make sooner or later anyway.
 
@@ -18,7 +18,7 @@ You can choose between PostgreSQL and MariaDB. MariaDB has the advantage of easy
 ### PosegreSQL
 ```shell
 DBENGINE=pgsql
-apt-get install postgresql postgresql-client
+apt install postgresql postgresql-client
 ```
 
 Login to to the database CLI.
@@ -29,8 +29,8 @@ su postgres -c psql
 Create the users and the database.
 ```sql
 CREATE DATABASE mail;
-CREATE USER mail_postfix WITH ENCRYPTED PASSWORD 'secret';
-CREATE USER mail_dovecot WITH ENCRYPTED PASSWORD 'secret';
+CREATE USER mail_transfer WITH ENCRYPTED PASSWORD 'secret';
+CREATE USER mail_access WITH ENCRYPTED PASSWORD 'secret';
 -- CREATE USER mail_roundcube WITH ENCRYPTED PASSWORD 'secret';
 ```
 
@@ -41,20 +41,19 @@ su postgres -c psql < tut.db.sql
 
 And the privileges.
 ```sql
-GRANT USAGE ON SCHEMA public TO mail_postfix;
-GRANT SELECT ("domain") ON domains TO mail_postfix;
-GRANT SELECT ("source", destination) ON forwardings TO mail_postfix;
-GRANT SELECT (email) ON users TO mail_postfix;
-GRANT SELECT ("domain", transport) ON transports TO mail_postfix;
+GRANT USAGE ON SCHEMA public TO mail_transfer;
+GRANT SELECT ("domain") ON domains TO mail_transfer;
+GRANT SELECT ("source", destination) ON forwardings TO mail_transfer;
+GRANT SELECT (email) ON users TO mail_transfer;
+GRANT SELECT ("domain", transport) ON transports TO mail_transfer;
 
--- IF YOU AUTHENTICATED RELAYS
-GRANT SELECT ("source", relay) ON sender_relays TO mail_postfix;
-GRANT SELECT ("source", username, password) ON relay_auth TO mail_postfix;
+-- IF YOU WANT AUTHENTICATED RELAYS
+GRANT SELECT ("source", relay) ON sender_relays TO mail_transfer;
+GRANT SELECT ("source", username, password) ON relay_auth TO mail_transfer;
 
-GRANT USAGE ON SCHEMA public TO mail_dovecot;
-GRANT SELECT (quota, email, password) ON users TO mail_dovecot;
-GRANT SELECT ("source", destination) ON forwardings TO mail_dovecot;
-GRANT SELECT, INSERT, UPDATE, DELETE ON expires TO mail_dovecot; -- ONLY IF YOU WANT EXPIRES
+GRANT USAGE ON SCHEMA public TO mail_access;
+GRANT SELECT (quota, email, password) ON users TO mail_access;
+GRANT SELECT ("source", destination) ON forwardings TO mail_access;
 
 -- ONLY IF YOU WANT ROUNDCUBE
 -- GRANT SELECT, INSERT, UPDATE, DELETE ON userpref TO mail_roundcube;
@@ -64,7 +63,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON expires TO mail_dovecot; -- ONLY IF YOU 
 ### MariaDB
 ```shell
 DBENGINE=mysql
-apt-get install mariadb-server mariadb-client
+apt install mariadb-server mariadb-client
 ```
 
 Login to to the database CLI.
@@ -75,8 +74,8 @@ mysql -uroot
 Create the users and the database.
 ```sql
 CREATE DATABASE mail DEFAULT CHARACTER SET utf8 DEFAULT COLLATE utf8_general_ci;
-CREATE USER 'mail_postfix'@'localhost' IDENTIFIED BY 'secret';
-CREATE USER 'mail_dovecot'@'localhost' IDENTIFIED BY 'secret';
+CREATE USER 'mail_transfer'@'localhost' IDENTIFIED BY 'secret';
+CREATE USER 'mail_access'@'localhost' IDENTIFIED BY 'secret';
 -- CREATE USER 'mail_roundcube'@'your-webserver.invalid' IDENTIFIED BY 'secret';
 ```
 
@@ -89,18 +88,17 @@ And the privileges.
 ```sql
 USE mail;
 
-GRANT SELECT (domain) ON domains TO 'mail_postfix'@'localhost';
-GRANT SELECT (source, destination) ON forwardings TO 'mail_postfix'@'localhost';
-GRANT SELECT (email) ON users TO 'mail_postfix'@'localhost';
-GRANT SELECT (domain, transport) ON transports TO 'mail_postfix'@'localhost';
+GRANT SELECT (domain) ON domains TO 'mail_transfer'@'localhost';
+GRANT SELECT (source, destination) ON forwardings TO 'mail_transfer'@'localhost';
+GRANT SELECT (email) ON users TO 'mail_transfer'@'localhost';
+GRANT SELECT (domain, transport) ON transports TO 'mail_transfer'@'localhost';
 
 -- IF YOU AUTHENTICATED RELAYS
-GRANT SELECT (source, relay) ON sender_relays TO 'mail_postfix'@'localhost';
-GRANT SELECT (source, username, password) ON relay_auth TO 'mail_postfix'@'localhost';
+GRANT SELECT (source, relay) ON sender_relays TO 'mail_transfer'@'localhost';
+GRANT SELECT (source, username, password) ON relay_auth TO 'mail_transfer'@'localhost';
 
-GRANT SELECT (quota, email, password) ON users TO 'mail_dovecot'@'localhost';
-GRANT SELECT (source, destination) ON forwardings TO 'mail_dovecot'@'localhost';
-GRANT SELECT, INSERT, UPDATE, DELETE ON expires TO 'mail_dovecot'@'localhost'; -- ONLY IF YOU WANT EXPIRES
+GRANT SELECT (quota, email, password) ON users TO 'mail_access'@'localhost';
+GRANT SELECT (source, destination) ON forwardings TO 'mail_access'@'localhost';
 
 -- GRANT SELECT, INSERT, UPDATE, DELETE ON userpref TO 'mail_roundcube'@'your-webserver.invalid';
 -- GRANT SELECT (email), UPDATE (password) ON users TO 'mail_roundcube'@'your-webserver.invalid';
@@ -108,10 +106,10 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON expires TO 'mail_dovecot'@'localhost'; -
 FLUSH PRIVILEGES;
 ```
 
-## Postfix
+## Postfix MTA
 ### Packages
 ```shell
-apt-get install postfix postfix-$DBENGINE
+apt install postfix postfix-$DBENGINE
 ```
 
 ### Basic setup
@@ -141,9 +139,7 @@ postconf -e "smtp_tls_enforce_peername = no"
 # Allow 100MB attachments
 postconf -e "message_size_limit = 102428800"
 
-# Enabling SMTP for authenticated users, and handing off authentication to Dovecot
-postconf -e "smtpd_sasl_type = dovecot"
-postconf -e "smtpd_sasl_path = private/auth"
+# Enabling SMTP for authenticated users, and handing off authentication to Cyrus
 postconf -e "smtpd_sasl_auth_enable = yes"
 
 postconf -e "smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination"
@@ -151,7 +147,7 @@ postconf -e "smtpd_recipient_restrictions = permit_sasl_authenticated, permit_my
 # Allow only addresses from authenticated sender
 postconf -e "smtpd_sender_restrictions = reject_authenticated_sender_login_mismatch"
 
-postconf -e "virtual_transport = lmtp:unix:private/dovecot-lmtp"
+postconf -e "virtual_transport = lmtp:unix:private/cyrus-lmtp"
 
 # Virtual domains, users, and aliases
 postconf -e "virtual_mailbox_domains = proxy:$DBENGINE:/etc/postfix/maps/virtual-mailbox-domains.cf"
@@ -165,12 +161,20 @@ postconf -e "recipient_delimiter = +"
 postconf -e "mydestination = localhost"
 ```
 
+```shell
+nano /etc/postfix/sasl/smtpd.conf
+```
+```
+pwcheck_method: saslauthd
+mech_list: PLAIN LOGIN
+```
+
 Create the maps for the virtuals. I simplified some things here for you.
 ```shell
 mkdir /etc/postfix/maps
 ```
 ```shell
-DBHOST=127.0.0.1; DBUSER=mail_postfix; DBPASS=secret; DBNAME=mail
+DBHOST=127.0.0.1; DBUSER=mail_transfer; DBPASS=secret; DBNAME=mail
 
 cat << EOF | tee /etc/postfix/maps/virtual-mailbox-domains.cf /etc/postfix/maps/virtual-mailbox-maps.cf /etc/postfix/maps/virtual-alias-maps.cf /etc/postfix/maps/virtual-email2email.cf /etc/postfix/maps/virtual-transports.cf
 user = $DBUSER
@@ -219,385 +223,190 @@ chgrp -R postfix /etc/postfix/maps
 systemctl restart postfix
 ```
 
-## Dovecot
+## Cyrus MDA
+TODO: pgsql
+
 ### Packages
 ```shell
-apt-get install dovecot-core dovecot-imapd dovecot-pop3d dovecot-lmtpd dovecot-$DBENGINE dovecot-sieve dovecot-managesieved
+apt install sasl2-bin libsasl2-modules libpam-mysql cyrus-imapd cyrus-admin cyrus-common cyrus-imapd-utils cyrus-caldav libjson-perl
 ```
 
-### Basic setup
-Create the maildir.
-```shell
-mkdir /var/vmail
- 
-groupadd -g 5000 vmail
-useradd -g vmail -u 5000 vmail -d /var/vmail
- 
-chown -R vmail:vmail /var/vmail
-```
-
+### SASL/PAM Setup
 Setup the database parameters.
-For the users.
 ```shell
-nano /etc/dovecot/dovecot-sql.conf.ext
+nano /etc/pam.d/imap
 ```
-(Replace `mysql` with `pgsql` if you use PostgreSQL)
 ```
-driver = mysql
-connect = host=127.0.0.1 dbname=mail user=mail_dovecot password=secret
-default_pass_scheme = SHA512-CRYPT
-
-#password_query = SELECT email AS user, password FROM users WHERE email = '%u'
-password_query = SELECT email AS user, password FROM users WHERE email = '%u' UNION SELECT u.email, u.password FROM forwardings AS f JOIN users u ON u.email = f.destination WHERE f.source = '%u' OR f.source = '@%d' LIMIT 1
-
-user_query = SELECT 'vmail' AS uid, 'vmail' AS gid, '/var/vmail/%d/%n' AS home, '*:bytes=' || quota AS quota_rule FROM users WHERE email = '%u'
-
-iterate_query = SELECT email AS user FROM users
+auth       required   pam_mysql.so user=mail_access passwd=secret host=127.0.0.1 db=mail table=users usercolumn=email passwdcolumn=password crypt=Y sha512
+account    sufficient pam_mysql.so user=mail_access passwd=secret host=127.0.0.1 db=mail table=users usercolumn=email passwdcolumn=password crypt=Y sha512
 ```
 
-Set up authentication settings.
 ```shell
-nano /etc/dovecot/conf.d/10-auth.conf
-```
-```
-disable_plaintext_auth = yes
-auth_mechanisms = plain login
-
-#!include auth-system.conf.ext
-!include auth-sql.conf.ext
-#!include auth-ldap.conf.ext
-#!include auth-passwdfile.conf.ext
-#!include auth-checkpassword.conf.ext
-#!include auth-vpopmail.conf.ext
-#!include auth-static.conf.ext
+chmod 600 /etc/pam.d/imap
+echo "@include imap" > /etc/pam.d/smtp
+cp /etc/pam.d/smtp /etc/pam.d/sieve
+cp /etc/pam.d/smtp /etc/pam.d/http
 ```
 
-Maildir location.
+[Adopted from Debian Wiki](https://wiki.debian.org/PostfixAndSASL)
 ```shell
-nano /etc/dovecot/conf.d/10-mail.conf
+cp /etc/default/saslauthd /etc/default/saslauthd-postfix
+nano /etc/default/saslauthd-postfix
 ```
 ```
-mail_location = maildir:/var/vmail/%d/%n
-mail_privileged_group = vmail
+START=yes
+DESC="SASL Auth. Daemon for Postfix"
+NAME="saslauthd-postf"      # max. 15 char.
+# Option -m sets working dir for saslauthd (contains socket)
+OPTIONS="-r -c -m /var/spool/postfix/var/run/saslauthd"        # postfix/smtp in chroot()
 ```
-
-Set the sockets for LMTP and SASL.
 ```shell
-nano /etc/dovecot/conf.d/10-master.conf
+dpkg-statoverride --add root sasl 710 /var/spool/postfix/var/run/saslauthd
+nano /etc/default/saslauthd
 ```
 ```
-default_internal_user = dovecot
-# enable the following, if you don't need spam filters
-#service lmtp {
-#  unix_listener /var/spool/postfix/private/dovecot-lmtp {
-#   mode = 0600
-#   user = postfix
-#   group = postfix
-#  }
-#}
-service auth {
-  unix_listener auth-userdb {
-    mode = 0600
-    user = vmail
-  }
+[...]
+OPTIONS="-r -c -m /var/run/saslauthd"
+```
 
-  unix_listener /var/spool/postfix/private/auth {
-    mode = 0666
-    user = postfix
-    group = postfix
-  }
- 
-  user = $default_internal_user
+```shell
+adduser postfix sasl
+systemctl restart saslauthd
+```
+
+Test authentication.
+```shell
+testsaslauthd -u test@example.org -p secret -s imap
+```
+
+### Cyrus settings
+```shell
+nano /etc/cyrus.conf
+```
+```
+[...]
+SERVICES {
+	imap		cmd="imapd -U 30" listen="imap" prefork=0 maxchild=100
+	imaps		cmd="imapd -s -U 30" listen="imaps" prefork=0 maxchild=100
+	https		cmd="httpd -s -U 30" listen="443" prefork=0 maxchild=100
+	lmtpunix	cmd="lmtpd" listen="/var/spool/postfix/private/cyrus-lmtp" prefork=0 maxchild=20
+	sieve		cmd="timsieved" listen="0.0.0.0:sieve" prefork=0 maxchild=100
+[...]
 }
-service auth-worker {
-  user = vmail
-}
+[...]
 ```
 
-Basic SSL settings.
-```shell
-nano /etc/dovecot/conf.d/10-ssl.conf
-```
-```
-ssl = required
-ssl_cert = &lt;/etc/ssl/certs/example.invalid.pem
-ssl_key = &lt;/etc/ssl/private/example.invalid.key
-
-ssl_protocols = !SSLv2
-ssl_cipher_list = ALL:!LOW:!SSLv2:!EXP:!aNULL
-```
-
-Auto subscription and auto creation of mailboxes.
-```shell
-nano /etc/dovecot/conf.d/15-mailboxes.conf
-```
-```
-namespace inbox {
-  mailbox INBOX {
-    auto = subscribe
-  }
-  mailbox Drafts {
-    auto = subscribe
-    special_use = \Drafts
-  }
-  mailbox Junk {
-    auto = subscribe
-    special_use = \Junk
-  }
-  mailbox Trash {
-    auto = subscribe
-    special_use = \Trash
-  }
-  mailbox Sent {
-    auto = subscribe
-    special_use = \Sent
-  }
-  mailbox "Sent Messages" {
-    special_use = \Sent
-  }
-}
-```
-### Expires
-(This is based on [this article](https://wiki.dovecot.org/Plugins/Expire) of the Dovecot Wiki)
-
-It's useful to delete some mails after a while. Users are moving their mails to the spam folder, but forgetting to delete them completely. We can automate this step to save data storage.
-
-Create a shell script, which iterates though each user and deletes old mails:
-```shell
-nano /usr/lib/dovecot/expurge.sh
-```
-```
-#!/bin/sh
-
-doveadm expunge -A mailbox Trash savedbefore 30d
-doveadm expunge -A mailbox Trash/* savedbefore 30d
-doveadm expunge -A mailbox Junk  savedbefore 7d
-```
 
 ```shell
-chown root:root /usr/lib/dovecot/expurge.sh
-chmod 750 /usr/lib/dovecot/expurge.sh
+nano /etc/imapd.conf
+```
+```
+configdirectory: /var/lib/cyrus
+proc_path: /run/cyrus/proc
+mboxname_lockpath: /run/cyrus/lock
+defaultpartition: default
+partition-default: /var/spool/cyrus/mail
+partition-news: /var/spool/cyrus/news
+newsspool: /var/spool/news
+sieveusehomedir: false
+sievedir: /var/spool/sieve
+altnamespace: yes
+unixhierarchysep: no
+hashimapspool: 0
+
+lmtp_downcase_rcpt: yes
+admins: cyrus
+allowanonymouslogin: no
+popminpoll: 1
+autocreate_quota: 0
+umask: 077
+
+allowplaintext: yes
+virtdomains: yes
+sasl_pwcheck_method: saslauthd
+sasl_mech_list: PLAIN
+sasl_auto_transition: no
+
+tls_server_cert: /etc/ssl/certs/example.invalid.pem
+tls_server_key: /etc/ssl/private/example.invalid.key
+tls_client_ca_dir: /etc/ssl/certs
+tls_session_timeout: 1440
+tls_ciphers: TLSv1.2:+TLSv1:+HIGH:!aNULL:@STRENGTH
+
+lmtpsocket: /run/cyrus/socket/lmtp
+idlesocket: /run/cyrus/socket/idle
+notifysocket: /run/cyrus/socket/notify
+syslog_prefix: cyrus
+
+httpmodules: caldav carddav
+carddav_allowaddressbookadmin: 1
+caldav_allowcalendaradmin: 1
+
+autocreate_sieve_script: /var/spool/sieve/default.script
+autocreate_sieve_script_compile: yes
+autocreate_sieve_script_compiled: default.script.bc
+autocreate_post: 1
+autocreate_inbox_folders: Sent | Drafts | Junk | Trash
+autocreate_subscribe_folders: Sent | Drafts | Junk | Trash
 ```
 
-Now, create a cronjob, which runs each day. It's important to create this cronjob in the root cron table, because doveadm requires root permissions.
+The default sieve script.
 ```shell
-crontab -e
+nano /var/spool/sieve/default.script
 ```
-```
-# expurge mails
-0 3 * * * /usr/lib/dovecot/expurge.sh
-```
-
-In theory it will work as it is at this point. Probably nobody of you will have enough users to make the following step necessary.
-
-The following step will speed up the user iteration. It tracks some information about our mailboxes to expurge and only iterate though those, which contains old mails. We will use the Dovecot dicts for it.
-
-Activate the expire plugin by adding the following lines to the configuration file.
-```shell
-nano /etc/dovecot/dovecot.conf
-```
-(Replace `mysql` with `pgsql` if you use PostgreSQL)
-```
-plugin {
-  expire_dict = proxy::expire
-}
-
-dict {
-  #quota = pgsql:/etc/dovecot/dovecot-dict-sql.conf.ext
-  expire = mysql:/etc/dovecot/dovecot-dict-sql.conf.ext
-}
-```
-
-```shell
-nano /etc/dovecot/dovecot-dict-sql.conf.ext
-```
-```
-connect = host=127.0.0.1 dbname=mail user=mail_dovecot password=secret
-```
-And comment out the following lines.
-```
-#map {
-#  pattern = priv/quota/storage
-#  table = quota
-#  username_field = username
-#  value_field = bytes
-#}
-#map {
-#  pattern = priv/quota/messages
-#  table = quota
-#  username_field = username
-#  value_field = messages
-#}
-```
-```shell
-nano /etc/dovecot/conf.d/15-mailboxes.conf
-```
-```
-mail_plugins = $mail_plugins expire
-
-plugin {
-  expire = Trash
-  expire2 = Trash/*
-  expire3 = Junk
-}
-```
-
-```shell
-nano /etc/dovecot/conf.d/10-master.conf
-```
-```
-service dict {
-  unix_listener dict {
-    mode = 0600
-    user = vmail
-  }
-}
-```
-
-
-### Sieve
-If you plan to use Sieve and Managesieved:
-```shell
-nano /etc/dovecot/conf.d/15-lda.conf
-```
-```
-protocol lda {
-  mail_plugins = $mail_plugins sieve
-}
-```
-
-```shell
-nano /etc/dovecot/conf.d/20-lmtp.conf
-```
-```
-protocol lmtp {
-  mail_plugins = $mail_plugins sieve
-}
-```
-
-```shell
-nano /etc/dovecot/conf.d/20-managesieve.conf
-```
-```
-protocols = $protocols sieve
-service managesieve-login {
-}
-service managesieve {
-}
-protocol sieve {
-}
-```
-
-Add a global sieve file to automatically move spam to the Junk folder.
-```shell
-nano /etc/dovecot/conf.d/90-sieve.conf
-```
-```
-  sieve_default = /usr/lib/dovecot/sieve/default.sieve
-  sieve_default_name = move-junk
-```
-```shell
-mkdir /usr/lib/dovecot/sieve
-chown vmail:vmail /usr/lib/dovecot/sieve/
-nano /usr/lib/dovecot/sieve/default.sieve
-```
-Depending on what you what, choose one of the following sieve scripts.
-#### Move all spam mails into Junk folder
 ```
 require ["fileinto"];
 # Move spam to spam folder
-if header :contains "X-Spam-Flag" ["YES"] {
+if header :contains "X-Spam" ["YES"] {
   fileinto "Junk";
   stop;
 }
 ```
 ```shell
-chmod 644 /usr/lib/dovecot/sieve/default.sieve
-chown vmail:vmail /usr/lib/dovecot/sieve/default.sieve
+chown cyrus:mail /var/spool/sieve/default.script
+```
+
+### Expires
+```shell
+cyradm --user user@example.invalid localhost
+```
+```
+mboxcfg Junk expire 7
+info Junk
 ```
 
 ### Quota
-(This is based on [this article](https://wiki2.dovecot.org/Quota/Configuration) of the Dovecot Wiki)
-
-If you plan to use quota:
-```bash
-nano /etc/dovecot/conf.d/10-mail.conf
-```
-```
-mail_plugins = $mail_plugins quota
-```
-
 ```shell
-nano /etc/dovecot/conf.d/20-imap.conf
-```
-```
-  mail_plugins = $mail_plugins imap_quota
-```
-
-```shell
-nano /etc/dovecot/conf.d/90-quota.conf
-```
-```
-plugin {
-  quota_rule = *:storage=1G
-  quota_rule2 = Trash:storage=+100M
-}
-plugin {
-  quota_warning = storage=95%% quota-warning 95 %u
-  quota_warning2 = storage=80%% quota-warning 80 %u
-}
-service quota-warning {
-  executable = script /usr/lib/dovecot/quota-warning.sh
-  user = dovecot
-  unix_listener quota-warning {
-  }
-}
-plugin {
-  quota = maildir:User quota
-}
-```
-
-Create a quota warning script. Change the From header to a meaningful one.
-```shell
-nano /usr/lib/dovecot/quota-warning.sh
+/usr/lib/cyrus/bin/quota
 ```
 ```shell
-#!/bin/sh
-PERCENT=$1
-USER=$2
-cat << EOF | /usr/lib/dovecot/deliver -d $USER -o "plugin/quota=maildir:User quota:noenforcing"
-From: postmaster@example.invalid
-Subject: Quota warning
- 
-Dear $USER,
- 
-Your mailbox is now $PERCENT% full. I recommend to delete some messages from your mailbox. If you reach 100%, you won't be able to receive new mails anymore.
- 
-  The mail system
-EOF
+cyradm --user cyrus localhost
 ```
-
-```shell
-chown dovecot:dovecot /usr/lib/dovecot/quota-warning.sh
-chmod 750 /usr/lib/dovecot/quota-warning.sh
+```
+setquota user.user@example.invalid 1024
+listquota user.user@example.invalid
 ```
 
 ### Restart
 ```shell
-systemctl restart dovecot
+systemctl restart cyrus-imapd
 ```
 
 ### Misc
 Feel free to generate some hashes.
 ```shell
-doveadm pw -s SHA512-CRYPT
+mkpasswd -m sha-512
 ```
 
+And give the admin user a password.
+```sql
+INSERT INTO users (email, password) VALUES ('cyrus', '$6$...MKPASSWD_OUTPUT...');
+```
 
 ## rspamd
 ### Packages
 ```shell
-apt-get install rspamd redis-server
+apt install rspamd redis-server
 ```
 
 ### Basic setup
@@ -626,81 +435,93 @@ systemctl restart rspamd
 ```
 
 ### Spam and ham learning
-(This is based on [this article](https://wiki2.dovecot.org/HowTo/AntispamWithSieve) of the Dovecot Wiki)
-
 If you want to learn from user move actions.
 
-Add imap_sieve to mail_plugins (if you enabled quota before the line looks like the following).
+Add external notifier to imap.conf.
 ```shell
-nano /etc/dovecot/conf.d/20-imap.conf
+nano /etc/imapd.conf
 ```
 ```
-  mail_plugins = $mail_plugins imap_quota imap_sieve
-```
-```shell
-nano /etc/dovecot/conf.d/90-sieve.conf
-```
-```
-plugin {
 [...]
-  sieve_plugins = sieve_imapsieve sieve_extprograms
-  imapsieve_mailbox1_name = Junk
-  imapsieve_mailbox1_causes = COPY
-  imapsieve_mailbox1_before = file:/usr/lib/dovecot/sieve/report-spam.sieve
-  imapsieve_mailbox2_name = *
-  imapsieve_mailbox2_from = Junk
-  imapsieve_mailbox2_causes = COPY
-  imapsieve_mailbox2_before = file:/usr/lib/dovecot/sieve/report-ham.sieve
-  sieve_pipe_bin_dir = /usr/lib/dovecot/sieve
-  sieve_global_extensions = +vnd.dovecot.pipe +vnd.dovecot.environment
-}
+event_notifier: external
+notify_external: /usr/local/bin/rspamd_learn.pl
+event_exclude_specialuse: 0
 ```
-
 ```shell
-nano /usr/lib/dovecot/sieve/report-spam.sieve
+nano /usr/local/bin/rspamd_learn.pl
 ```
 ```
-require ["vnd.dovecot.pipe", "copy", "imapsieve", "environment", "variables" ];
+#!/usr/bin/perl
 
-if environment :matches "imap.user" "*" {
-  set "username" "${1}";
+my $spool = "/var/spool/cyrus/mail";
+my $junk_folder = "Junk";
+
+use JSON;
+use URI::Split qw(uri_split uri_join);
+use URI::Escape;
+
+my $json = <STDIN>;
+my $perl = decode_json($json);
+
+my $event = $perl->{event};
+my $oldMailboxID = $perl->{oldMailboxID};
+my $uri = $perl->{uri};
+my $uidset = $perl->{uidset};
+
+if ($event ne "vnd.cmu.MessageMove") {
+	exit;
 }
 
-pipe :copy "sa-learn.sh" [ "spam", "${username}" ];
-```
+sub parse_uri {
+	($scheme, $auth, $path) = uri_split(@_[0]);
 
+	my @pathparts = split(';', uri_unescape($path));
+	my @mboxparts = split('/', @pathparts[0]);
+	my @mboxdom = split('@', @mboxparts[-1]);
+
+	my $dir = "";
+	if (scalar @mboxdom == 2) {
+		$dir .= "domain/" . @mboxdom[1] . "/";
+	}
+	$dir .= join('/', split('\.', @mboxdom[0]));
+
+	return $dir
+}
+sub genrange {
+	if (scalar @_ == 1) {
+		return (@_[0] + 0);
+	}
+	@arr = ();
+	for (my $i = @_[0]; $i <= @_[1]; ++$i) {
+		push @arr, $i;
+	}
+	return @arr;
+}
+sub parse_uids {
+	return map{ genrange(split(':', $_)) }(split(',', @_[0]))
+}
+
+$old_mbox = parse_uri($oldMailboxID);
+$mbox = parse_uri($uri);
+
+@old_mbox_sp = split('/', $old_mbox);
+@mbox_sp = split('/', $mbox);
+my $learn;
+if (@old_mbox_sp[-1] eq $junk_folder && @mbox_sp[-1] ne $junk_folder) {
+	$learn = "ham";
+} elsif (@old_mbox_sp[-1] ne $junk_folder && @mbox_sp[-1] eq $junk_folder) {
+	$learn = "spam";
+} else {
+	exit; # nothing to learn
+}
+
+my @learn_files = map{ $spool . "/" . $mbox . "/" . $_ . "." }(parse_uids($uidset));
+
+system("/usr/bin/rspamc", "-h", "127.0.0.1", "learn_" . $learn, @learn_files);
+```
 ```shell
-nano /usr/lib/dovecot/sieve/report-ham.sieve
-```
-```
-require ["vnd.dovecot.pipe", "copy", "imapsieve", "environment", "variables"];
-
-if environment :matches "imap.mailbox" "*" {
-  set "mailbox" "${1}";
-}
-
-if string "${mailbox}" "Trash" {
-  stop;
-}
-
-if environment :matches "imap.user" "*" {
-  set "username" "${1}";
-}
-
-pipe :copy "sa-learn.sh" [ "ham", "${username}" ];
-```
-
-```shell
-nano /usr/lib/dovecot/sieve/sa-learn.sh
-```
-```
-#!/bin/sh
-exec /usr/bin/rspamc -h 127.0.0.1 learn_${1}
-```
-
-```shell
-sievec /usr/lib/dovecot/sieve
-chmod +x /usr/lib/dovecot/sieve/sa-learn.sh
+chown cyrus:mail /usr/local/bin/rspamd_learn.pl
+chmod +x /usr/local/bin/rspamd_learn.pl
 ```
 
 # Closing words

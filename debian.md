@@ -52,7 +52,7 @@ GRANT SELECT ("source", relay) ON sender_relays TO mail_transfer;
 GRANT SELECT ("source", username, password) ON relay_auth TO mail_transfer;
 
 GRANT USAGE ON SCHEMA public TO mail_access;
-GRANT SELECT (quota, email, password) ON users TO mail_access;
+GRANT SELECT (email, password) ON users TO mail_access;
 GRANT SELECT ("source", destination) ON forwardings TO mail_access;
 
 -- ONLY IF YOU WANT ROUNDCUBE
@@ -97,7 +97,7 @@ GRANT SELECT (domain, transport) ON transports TO 'mail_transfer'@'localhost';
 GRANT SELECT (source, relay) ON sender_relays TO 'mail_transfer'@'localhost';
 GRANT SELECT (source, username, password) ON relay_auth TO 'mail_transfer'@'localhost';
 
-GRANT SELECT (quota, email, password) ON users TO 'mail_access'@'localhost';
+GRANT SELECT (email, password) ON users TO 'mail_access'@'localhost';
 GRANT SELECT (source, destination) ON forwardings TO 'mail_access'@'localhost';
 
 -- GRANT SELECT, INSERT, UPDATE, DELETE ON userpref TO 'mail_roundcube'@'your-webserver.invalid';
@@ -313,6 +313,7 @@ sievedir: /var/spool/sieve
 altnamespace: yes
 unixhierarchysep: no
 hashimapspool: 0
+delete_mode: immediate
 
 lmtp_downcase_rcpt: yes
 admins: cyrus
@@ -522,6 +523,52 @@ system("/usr/bin/rspamc", "-h", "127.0.0.1", "learn_" . $learn, @learn_files);
 ```shell
 chown cyrus:mail /usr/local/bin/rspamd_learn.pl
 chmod +x /usr/local/bin/rspamd_learn.pl
+```
+
+# WKS
+```shell
+mkdir /var/lib/gnupg/wks
+adduser --system --group --home /var/lib/gnupg/wks --shell /bin/bash wks
+adduser wks mail
+chown wks:mail /var/lib/gnupg/wks -R
+chmod 2750 /var/lib/gnupg/wks
+```
+
+```shell
+su wks
+mkdir /var/lib/gnupg/wks/example.org
+gpg-wks-server --list-domains
+cd /var/lib/gnupg/wks/example.org
+echo key-submission@example.org >s ubmission-address
+gpg --batch --passphrase '' --quick-gen-key key-submission@example.org
+gpg --with-wkd-hash -K key-submission@example.org
+gpg -o /var/lib/gnupg/wks/example.org/hu/HASH --export-options export-minimal --export key-submission@example.org
+```
+
+Add a pipe:
+```shell
+nano /etc/postfix/master.cf
+```
+```
+wks unix - n n - - pipe
+  flags=DRhu user=wks argv=/var/lib/gnupg/wks/wks.sh --receive --from wks-submission@${user}
+```
+
+```shell
+nano /var/lib/gnupg/wks/wks.sh
+```
+```
+#!/bin/sh
+
+/usr/bin/gpg-wks-server $@ | sendmail -t
+```
+
+Then:
+```sql
+INSERT INTO domains (domain) VALUES ('wks.localdomain');
+INSERT INTO transports (domain, transport) VALUES ('wks.localdomain', 'wks:');
+INSERT INTO forwardings (source, destination) VALUES ('example.org@wks.localdomain', '');
+INSERT INTO forwardings (source, destination) VALUES ('key-submission@example.org', 'example.org@wks.localdomain');
 ```
 
 # Closing words
